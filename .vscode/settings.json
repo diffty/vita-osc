@@ -1,0 +1,7 @@
+{
+    "files.associations": {
+        "processmgr.h": "c",
+        "net.h": "c",
+        "http.h": "c"
+    }
+}
