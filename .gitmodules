@@ -1,0 +1,3 @@
+[submodule "deps/osclib"]
+	path = deps/osclib
+	url = git@github.com:diffty/osclib.git

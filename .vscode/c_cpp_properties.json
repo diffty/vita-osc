@@ -1,21 +1,18 @@
 {
     "configurations": [
         {
-            "name": "Win32",
+            "name": "Vita",
             "includePath": [
                 "${workspaceFolder}/**",
-                "/usr/local/vitasdk/arm-vita-eabi/include"
+                "${workspaceFolder}/deps/osclib/src"
             ],
-            "defines": [
-                "_DEBUG",
-                "UNICODE",
-                "_UNICODE"
-            ],
-            "windowsSdkVersion": "10.0.19041.0",
+            "defines": [],
+            "macFrameworkPath": [],
             "compilerPath": "/usr/local/vitasdk/bin/arm-vita-eabi-gcc",
             "cStandard": "c17",
-            "cppStandard": "c++17",
-            "intelliSenseMode": "windows-msvc-x64"
+            "cppStandard": "gnu++17",
+            "intelliSenseMode": "macos-gcc-x64",
+            "configurationProvider": "ms-vscode.cmake-tools"
         }
     ],
     "version": 4

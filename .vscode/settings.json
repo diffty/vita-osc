@@ -1,7 +1,16 @@
 {
     "files.associations": {
+        "*.c": "c",
+        "endian.h": "c",
+        "_endian.h": "c",
+        "_types.h": "c",
+        "cdefs.h": "c",
+        "fcntl.h": "c",
         "processmgr.h": "c",
-        "net.h": "c",
-        "http.h": "c"
+        "cmath": "c",
+        "iofilemgr.h": "c",
+        "debugscreen.h": "c",
+        "netctl.h": "c",
+        "osc_data.h": "c"
     }
 }
