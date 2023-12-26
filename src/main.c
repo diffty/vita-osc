@@ -27,6 +27,115 @@
 #define NET_PARAM_MEM_SIZE (1*1024*1024)
 
 
+typedef enum EOscMappingStyle {
+    EOscMappingStyle_MOMENTARY,
+    EOscMappingStyle_TOGGLE,
+} EOscMappingStyle;
+
+
+typedef struct OscButtonMapping {
+    char* address;
+    int button;
+    EOscMappingStyle mappingStyle;
+    float range[2];
+} OscButtonMapping;
+
+
+const char BUTTON_NAMES[16][10] = {
+    "SELECT",
+    "",
+    "",
+    "START",
+    "UP",
+    "RIGHT",
+    "DOWN",
+    "LEFT",
+    "L",
+    "R",
+    "",
+    "",
+    "TRIANGLE",
+    "CIRCLE",
+    "CROSS",
+    "SQUARE"
+};
+
+
+const char OSC_MAPPING_STYLE_NAME[2][10] = {
+    "MOMENTARY",
+    "TOGGLE"
+};
+
+
+void init_osc_button_mapping(OscButtonMapping* btnMapping) {
+    btnMapping->address = malloc(1);
+    btnMapping->address[0] = '\0';
+    btnMapping->button = -1;
+    btnMapping->mappingStyle = EOscMappingStyle_MOMENTARY;
+    btnMapping->range[0] = 0.0;
+    btnMapping->range[1] = 1.0;
+}
+
+void free_osc_button_mapping(OscButtonMapping* btnMapping) {
+    free(btnMapping->address);
+}
+
+void copy_str(char** strDst, const char* strSrc) {
+    int strDstSize = strlen(*strDst);
+    int strSrcSize = strlen(strSrc);
+
+    if (strSrcSize > strDstSize) {
+        resizeArray(strDst, strDstSize + 1, strSrcSize + 1);
+    }
+    else if (strSrcSize < strDstSize) {
+        memset(*strDst, '\0', strDstSize + 1);
+    }
+
+    memcpy(*strDst, strSrc, strSrcSize + 1);
+}
+
+// Building OSC message
+void send_osc_message_from_mapping(int sfd, SceNetSockaddrIn addrTo, OscButtonMapping* oscMapping, float mappingValue) {
+    float arg = oscMapping->range[0] + (oscMapping->range[1] - oscMapping->range[0]) * mappingValue;
+    OscMessage newMsg = make_osc_message(oscMapping->address, "f", &arg);
+    
+    char* fullArgs = (char*) malloc(newMsg.size);
+    assemble_osc_message_args(&newMsg, fullArgs);
+
+    int typeTagsStrPadSize = calculate_size_with_padding(newMsg.argsCount + 2);
+    char* typeTags = (char*) malloc(typeTagsStrPadSize);
+    memset(typeTags, '\0', typeTagsStrPadSize);
+    assemble_osc_message_type_tags(&newMsg, typeTags);
+
+    int msgAddrSize = calculate_size_with_padding(strlen(newMsg.address) + 1);
+    int wholeMsgSize = msgAddrSize + typeTagsStrPadSize + newMsg.size;
+
+    char* wholeMsg = (char*) malloc(wholeMsgSize);
+    memset(wholeMsg, '\0', wholeMsgSize);
+
+    // TODO faire une routine pour assembler des bytestream comme ça
+    memcpy(&wholeMsg[0], newMsg.address, msgAddrSize);
+    memcpy(&wholeMsg[msgAddrSize], typeTags, typeTagsStrPadSize);
+    memcpy(&wholeMsg[msgAddrSize + typeTagsStrPadSize], fullArgs, newMsg.size);
+    
+    int result = sceNetSendto(sfd,
+                              wholeMsg,
+                              wholeMsgSize,
+                              0,
+                              &addrTo,
+                              sizeof(addrTo));
+
+    if (result < 0) {
+        printf("Error while sending packet to destination. (%d)\n", result);
+    }
+
+    free(fullArgs);
+    free(typeTags);
+    free(wholeMsg);
+
+    free_osc_message(&newMsg);
+}
+
 int main(int argc, char *argv[]) {
     // Initialize debug screen
     psvDebugScreenInit();
@@ -56,7 +165,7 @@ int main(int argc, char *argv[]) {
 
     // Init socket connection
     // open a socket to listen for datagrams (i.e. UDP packets) on port 7001
-    int32_t sfd = sceNetSocket("osc-destination", SCE_NET_AF_INET, SCE_NET_SOCK_DGRAM, 0); // SCE_NET_IPPROTO_UDP
+    int32_t sfd = sceNetSocket("osc-destination", SCE_NET_AF_INET, SCE_NET_SOCK_DGRAM, 0);
     if (sfd < 0) {
         printf("Error while creating socket\n");
         sceKernelExitProcess(-1);
@@ -64,11 +173,13 @@ int main(int argc, char *argv[]) {
     }
     printf("Socket created.\n");
 
+
     // Preparing IP destination
     SceNetInAddr dst_addr;			/* destination address */
     printf("Converting IP address.\n");
     //sceNetInetPton(SCE_NET_AF_INET, "192.168.87.198", (void*)&dst_addr);
     
+
     // Connecting to UDP server
     SceNetSockaddrIn addrTo; 	/* server address to send data to */
     memset(&addrTo, 0, sizeof(addrTo));
@@ -82,80 +193,44 @@ int main(int argc, char *argv[]) {
     printf("IP address %s\n", vitaNetInfo.ip_address);
 
 
-    // Building OSC message
-    int arg1 = 6969;
-    OscMessage newMsg = make_osc_message("/o/la/fami", "i", &arg1);
-    
-    char* fullArgs = (char*) malloc(newMsg.size);
-    assemble_osc_message_args(&newMsg, fullArgs);
-    print_memory_block_hex(fullArgs, newMsg.size);
-
-    int typeTagsStrPadSize = calculate_size_with_padding(newMsg.argsCount + 2);
-    char* typeTags = (char*) malloc(typeTagsStrPadSize);
-    memset(typeTags, '\0', typeTagsStrPadSize);
-    assemble_osc_message_type_tags(&newMsg, typeTags);
-
-    printf("%s\n", typeTags);
-    print_memory_block_hex(typeTags, typeTagsStrPadSize);
-
-    printf("%s\n", newMsg.address);
-
-
-    int msgAddrSize = calculate_size_with_padding(strlen(newMsg.address) + 1);
-    
-    int wholeMsgSize = msgAddrSize
-                       + typeTagsStrPadSize
-                       + newMsg.size;
-
-    char* wholeMsg = (char*) malloc(wholeMsgSize);
-    memset(wholeMsg, '\0', wholeMsgSize);
-
-    // TODO faire une routine pour assembler des bytestream comme ça
-    memcpy(&wholeMsg[0], newMsg.address, msgAddrSize);
-    memcpy(&wholeMsg[msgAddrSize], typeTags, typeTagsStrPadSize);
-    memcpy(&wholeMsg[msgAddrSize + typeTagsStrPadSize], fullArgs, newMsg.size);
-    
-    print_memory_block_hex(&wholeMsg, wholeMsgSize);
-    
-    
-    int result = sceNetSendto(sfd,
-                              wholeMsg,
-                              wholeMsgSize,
-                              0,
-                              &addrTo,
-                              sizeof(addrTo));
-
-    if (result < 0) {
-        printf("Error while sending packet to destination. (%d)\n", result);
-    }
-
-
-    // greetings
-    psvDebugScreenPrintf("input test\n");
-    psvDebugScreenPrintf("press Select+Start+L+R to stop\n");
-
-    // to enable analog sampling
+    // Enable analog sampling
     sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG);
-    
-    SceCtrlData ctrl;
 
-    /*const char* btn_label[]={"SELECT ","","","START ",
-        "UP ","RIGHT ","DOWN ","LEFT ","L ","R ","","",
-        "TRIANGLE ","CIRCLE ","CROSS ","SQUARE "};
 
-    do {
-        sceCtrlPeekBufferPositive(0, &ctrl, 1);
+    // OSC Mappings management
+    int nbMappings = 2;
 
-        psvDebugScreenPrintf("Buttons:%08X == ", ctrl.buttons);
+    OscButtonMapping* oscButtonMapping = NULL;
+    oscButtonMapping = (OscButtonMapping*) malloc(nbMappings * sizeof(OscButtonMapping));
 
-        int i;
+    init_osc_button_mapping(&oscButtonMapping[0]);
+    init_osc_button_mapping(&oscButtonMapping[1]);
 
-        for(i=0; i < sizeof(btn_label)/sizeof(*btn_label); i++){
-            psvDebugScreenPrintf("\e[9%im%s",(ctrl.buttons & (1<<i)) ? 7 : 0, btn_label[i]);
-        }
+    copy_str(&oscButtonMapping[0].address, "/test/ouida");
+    copy_str(&oscButtonMapping[1].address, "/test/oki");
 
-        psvDebugScreenPrintf("\e[m Stick:[%3i:%3i][%3i:%3i]\r", ctrl.lx,ctrl.ly, ctrl.rx,ctrl.ry);
-    } while(ctrl.buttons != (SCE_CTRL_START | SCE_CTRL_SELECT | SCE_CTRL_LTRIGGER | SCE_CTRL_RTRIGGER) );*/
+    oscButtonMapping[0].button = 12;
+    oscButtonMapping[1].button = 14;
+
+    TUITable tuiTable;
+    tui_init_table(&tuiTable);
+
+    int i, j;
+
+    for (i = 0; i < nbMappings; i++) {
+        TUITableRow* tuiTableRow = (TUITableRow*) malloc(sizeof(TUITableRow));
+
+        tui_init_table_row(tuiTableRow, 4);
+        tui_add_row_to_table(&tuiTable, tuiTableRow);
+
+        char rangeStr[20];
+        snprintf(rangeStr, 20, "%f->%f", oscButtonMapping[i].range[0], oscButtonMapping[i].range[1]);
+
+        tui_set_table_row_cell(tuiTableRow, 0, oscButtonMapping[i].address);
+        tui_set_table_row_cell(tuiTableRow, 1, BUTTON_NAMES[oscButtonMapping[i].button]);
+        tui_set_table_row_cell(tuiTableRow, 2, rangeStr);
+        tui_set_table_row_cell(tuiTableRow, 3, OSC_MAPPING_STYLE_NAME[oscButtonMapping[i].mappingStyle]);
+    }
 
 
     // TUI
@@ -179,53 +254,47 @@ int main(int argc, char *argv[]) {
     printf("\e[1;%dH", windowWidth - 6);
     printf("%d", port);
 
-    TUITable tuiTable;
-    tui_init_table(&tuiTable);
-
-    TUITableRow tuiTableRow1;
-    tui_init_table_row(&tuiTableRow1, 4);
-    tui_add_row_to_table(&tuiTable, &tuiTableRow1);
-    tui_set_table_row_cell(&tuiTableRow1, 0, "Test");
-    tui_set_table_row_cell(&tuiTableRow1, 1, "Oui");
-    tui_set_table_row_cell(&tuiTableRow1, 2, "Non");
-    tui_set_table_row_cell(&tuiTableRow1, 3, "Oki");
-
-    TUITableRow tuiTableRow2;
-    tui_init_table_row(&tuiTableRow2, 4);
-    tui_add_row_to_table(&tuiTable, &tuiTableRow2);
-    tui_set_table_row_cell(&tuiTableRow2, 0, "Lol");
-    tui_set_table_row_cell(&tuiTableRow2, 1, "Mdr");
-    tui_set_table_row_cell(&tuiTableRow2, 2, "Ptdr");
-    tui_set_table_row_cell(&tuiTableRow2, 3, "Expldr");
-
-
     tui_redraw_table(&tuiTable, windowWidth, windowHeight);
 
-    int moveKeyIsDown = 0;
+
+    // Input events management
+    SceCtrlData ctrl;
+    unsigned int prevButtonState = 0x0;
 
     do {
         sceCtrlPeekBufferPositive(0, &ctrl, 1);
-        tui_redraw_table(&tuiTable, windowWidth, windowHeight);
 
-        if (ctrl.buttons == 0x0) {
-            moveKeyIsDown = 0;
-        }
-        else if (ctrl.buttons != 0x0 && !moveKeyIsDown) {
-            if (ctrl.buttons & SCE_CTRL_DOWN) {
+        if (ctrl.buttons != prevButtonState) {
+            unsigned int buttonsDown = ctrl.buttons & ~prevButtonState;
+            unsigned int buttonsUp = ~ctrl.buttons & prevButtonState;
+
+            if (buttonsDown & SCE_CTRL_DOWN) {
                 tuiTable.highlightedRowId = (tuiTable.highlightedRowId + 1) % tuiTable.nbRows;
             }
-            else if (ctrl.buttons & SCE_CTRL_UP) {
+            else if (buttonsDown & SCE_CTRL_UP) {
                 tuiTable.highlightedRowId--;
                 if (tuiTable.highlightedRowId < 0) {
                     tuiTable.highlightedRowId = tuiTable.nbRows-1;
                 }
             }
-            moveKeyIsDown = 1;
+
+            for (i = 0; i < nbMappings; i++) {
+                if (buttonsDown & (1 << oscButtonMapping[i].button)) {
+                    send_osc_message_from_mapping(sfd, addrTo, &oscButtonMapping[i], 1.0);
+                }
+
+                if (buttonsUp & (1 << oscButtonMapping[i].button)) {
+                    send_osc_message_from_mapping(sfd, addrTo, &oscButtonMapping[i], 0.0);
+                }
+            }
         }
 
+        tui_redraw_table(&tuiTable, windowWidth, windowHeight);
+
+        prevButtonState = ctrl.buttons;
     } while(ctrl.buttons != (SCE_CTRL_START | SCE_CTRL_SELECT | SCE_CTRL_LTRIGGER | SCE_CTRL_RTRIGGER) );
 
-
+    // Quitting
     sceKernelExitProcess(0);
 
     return 0;
