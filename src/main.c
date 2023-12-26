@@ -19,6 +19,8 @@
 #include "debugScreen.h"
 #include "../deps/osclib/src/osc_data.h"
 
+#include "tui.h"
+
 
 #define printf psvDebugScreenPrintf
 
@@ -116,7 +118,13 @@ int main(int argc, char *argv[]) {
     print_memory_block_hex(&wholeMsg, wholeMsgSize);
     
     
-    int result = sceNetSendto(sfd, wholeMsg, wholeMsgSize, 0, &addrTo, sizeof(addrTo));
+    int result = sceNetSendto(sfd,
+                              wholeMsg,
+                              wholeMsgSize,
+                              0,
+                              &addrTo,
+                              sizeof(addrTo));
+
     if (result < 0) {
         printf("Error while sending packet to destination. (%d)\n", result);
     }
@@ -131,7 +139,7 @@ int main(int argc, char *argv[]) {
     
     SceCtrlData ctrl;
 
-    const char* btn_label[]={"SELECT ","","","START ",
+    /*const char* btn_label[]={"SELECT ","","","START ",
         "UP ","RIGHT ","DOWN ","LEFT ","L ","R ","","",
         "TRIANGLE ","CIRCLE ","CROSS ","SQUARE "};
 
@@ -147,7 +155,76 @@ int main(int argc, char *argv[]) {
         }
 
         psvDebugScreenPrintf("\e[m Stick:[%3i:%3i][%3i:%3i]\r", ctrl.lx,ctrl.ly, ctrl.rx,ctrl.ry);
+    } while(ctrl.buttons != (SCE_CTRL_START | SCE_CTRL_SELECT | SCE_CTRL_LTRIGGER | SCE_CTRL_RTRIGGER) );*/
+
+
+    // TUI
+    int windowWidth = 120;
+    int windowHeight = 30;
+
+    printf("\033[2J");
+
+    printf("\e[1;H");
+    printf("Address:");
+
+    printf("\e[1;10H");
+    char address[16] = "xxx.xxx.xxx.xxx";
+    int port = 7001;
+
+    printf("%s", address);
+
+    printf("\e[1;%dH", windowWidth - 12);
+    printf("Port:");
+
+    printf("\e[1;%dH", windowWidth - 6);
+    printf("%d", port);
+
+    TUITable tuiTable;
+    tui_init_table(&tuiTable);
+
+    TUITableRow tuiTableRow1;
+    tui_init_table_row(&tuiTableRow1, 4);
+    tui_add_row_to_table(&tuiTable, &tuiTableRow1);
+    tui_set_table_row_cell(&tuiTableRow1, 0, "Test");
+    tui_set_table_row_cell(&tuiTableRow1, 1, "Oui");
+    tui_set_table_row_cell(&tuiTableRow1, 2, "Non");
+    tui_set_table_row_cell(&tuiTableRow1, 3, "Oki");
+
+    TUITableRow tuiTableRow2;
+    tui_init_table_row(&tuiTableRow2, 4);
+    tui_add_row_to_table(&tuiTable, &tuiTableRow2);
+    tui_set_table_row_cell(&tuiTableRow2, 0, "Lol");
+    tui_set_table_row_cell(&tuiTableRow2, 1, "Mdr");
+    tui_set_table_row_cell(&tuiTableRow2, 2, "Ptdr");
+    tui_set_table_row_cell(&tuiTableRow2, 3, "Expldr");
+
+
+    tui_redraw_table(&tuiTable, windowWidth, windowHeight);
+
+    int moveKeyIsDown = 0;
+
+    do {
+        sceCtrlPeekBufferPositive(0, &ctrl, 1);
+        tui_redraw_table(&tuiTable, windowWidth, windowHeight);
+
+        if (ctrl.buttons == 0x0) {
+            moveKeyIsDown = 0;
+        }
+        else if (ctrl.buttons != 0x0 && !moveKeyIsDown) {
+            if (ctrl.buttons & SCE_CTRL_DOWN) {
+                tuiTable.highlightedRowId = (tuiTable.highlightedRowId + 1) % tuiTable.nbRows;
+            }
+            else if (ctrl.buttons & SCE_CTRL_UP) {
+                tuiTable.highlightedRowId--;
+                if (tuiTable.highlightedRowId < 0) {
+                    tuiTable.highlightedRowId = tuiTable.nbRows-1;
+                }
+            }
+            moveKeyIsDown = 1;
+        }
+
     } while(ctrl.buttons != (SCE_CTRL_START | SCE_CTRL_SELECT | SCE_CTRL_LTRIGGER | SCE_CTRL_RTRIGGER) );
+
 
     sceKernelExitProcess(0);
 
