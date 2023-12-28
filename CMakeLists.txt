@@ -25,7 +25,6 @@ include_directories(
 
 add_executable(${PROJECT_NAME}
   src/main.c
-  common/debugScreen.c
   deps/osclib/src/osc_data.h
 )
 

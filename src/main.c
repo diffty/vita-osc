@@ -150,7 +150,7 @@ int main(int argc, char *argv[]) {
     
     int ret = sceNetShowNetstat();
     SceNetInitParam net_init_param; /* Net init param structure */
-
+    
     if (ret == SCE_NET_ERROR_ENOTINIT) {
         net_init_param.memory = malloc(NET_PARAM_MEM_SIZE);
         net_init_param.size = NET_PARAM_MEM_SIZE;
@@ -177,14 +177,15 @@ int main(int argc, char *argv[]) {
     // Preparing IP destination
     SceNetInAddr dst_addr;			/* destination address */
     printf("Converting IP address.\n");
-    //sceNetInetPton(SCE_NET_AF_INET, "192.168.87.198", (void*)&dst_addr);
+    sceNetInetPton(SCE_NET_AF_INET, "192.168.1.47", (void*) &dst_addr);
     
 
     // Connecting to UDP server
     SceNetSockaddrIn addrTo; 	/* server address to send data to */
     memset(&addrTo, 0, sizeof(addrTo));
     addrTo.sin_family = SCE_NET_AF_INET;
-    addrTo.sin_addr.s_addr = sceNetHtonl(SCE_NET_INADDR_ANY);
+    //addrTo.sin_addr.s_addr = sceNetHtonl(SCE_NET_INADDR_ANY);
+    addrTo.sin_addr = dst_addr;
     addrTo.sin_port = sceNetHtons(7001);
 
     SceNetCtlInfo vitaNetInfo;
