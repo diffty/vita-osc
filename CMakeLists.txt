@@ -16,11 +16,18 @@ set(VITA_TITLEID  "VOSC00001")
 set(VITA_VERSION  "00.01")
 set(VITA_EMU_STORAGE_PATH "/Users/diffty/Library/Application Support/Vita3K/Vita3K/ux0/app")
 
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=gnu11")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=gnu11 -D TARGET_PSVITA")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -D TARGET_PSVITA")
+
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/out/lib)
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/out/lib)
+set(CMAKE_BINARY_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/out)
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/out)
+
+set(PSVITA_ARTIFACTS_OUTPUT_DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/psvita)
 
 include_directories(
-  common
+  "${PROJECT_SOURCE_DIR}/deps/muglib/src"
 )
 
 add_executable(${PROJECT_NAME}
@@ -28,13 +35,13 @@ add_executable(${PROJECT_NAME}
   deps/osclib/src/osc_data.h
 )
 
+add_subdirectory("deps/muglib/" "build")
+
 target_link_libraries(${PROJECT_NAME}
-  SceDisplay_stub
-  SceCtrl_stub
-  SceTouch_stub
+  muglib
 )
 
-vita_create_self(${PROJECT_NAME}.self ${PROJECT_NAME})
+vita_create_self(${PROJECT_NAME}.self ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/${PROJECT_NAME})
 vita_create_vpk(${PROJECT_NAME}.vpk ${VITA_TITLEID} ${PROJECT_NAME}.self
   VERSION ${VITA_VERSION}
   NAME ${VITA_APP_NAME}

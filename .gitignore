@@ -1,5 +1,11 @@
+.DS_Store
 build/
 CMakeFiles
 CMakeCache.txt
 cmake_install.cmake
 MakeFile
+*.self
+*.velf
+*.vpk
+*.out
+*.sfo
