@@ -1,3 +1,6 @@
 [submodule "deps/osclib"]
 	path = deps/osclib
 	url = git@github.com:diffty/osclib.git
+[submodule "deps/muglib"]
+	path = deps/muglib
+	url = git@github.com:diffty/muglib.git
