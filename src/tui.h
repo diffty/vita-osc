@@ -2,9 +2,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "debugScreen.h"
-#define printf psvDebugScreenPrintf
-
 
 typedef struct TUITableRow {
     int nbColumns;
