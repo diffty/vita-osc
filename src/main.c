@@ -33,6 +33,78 @@
 #define NET_PARAM_MEM_SIZE (1*1024*1024)
 
 
+#include <string.h>
+#include <stdbool.h>
+
+#include <psp2/types.h>
+#include <psp2/message_dialog.h>
+#include <psp2/libime.h>
+#include <psp2/apputil.h>
+#include <psp2/gxm.h>
+#include <psp2/kernel/sysmem.h>
+
+#define ALIGN(x, a)	(((x) + ((a) - 1)) & ~((a) - 1))
+#define DISPLAY_WIDTH			960
+#define DISPLAY_HEIGHT			544
+#define DISPLAY_STRIDE_IN_PIXELS	1024
+#define DISPLAY_BUFFER_COUNT		2
+#define DISPLAY_MAX_PENDING_SWAPS	1
+
+typedef struct{
+    void*data;
+    SceGxmSyncObject*sync;
+    SceGxmColorSurface surf;
+    SceUID uid;
+} displayBuffer;
+
+unsigned int backBufferIndex = 0;
+unsigned int frontBufferIndex = 0;
+/* could be converted as struct displayBuffer[] */
+displayBuffer dbuf[DISPLAY_BUFFER_COUNT];
+
+void *dram_alloc(unsigned int size, SceUID *uid){
+    void *mem;
+    *uid = sceKernelAllocMemBlock("gpu_mem", SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW, ALIGN(size,256*1024), NULL);
+    sceKernelGetMemBlockBase(*uid, &mem);
+    sceGxmMapMemory(mem, ALIGN(size,256*1024), SCE_GXM_MEMORY_ATTRIB_READ | SCE_GXM_MEMORY_ATTRIB_WRITE);
+    return mem;
+}
+void gxm_vsync_cb(const void *callback_data) {
+    sceDisplaySetFrameBuf(&(SceDisplayFrameBuf){sizeof(SceDisplayFrameBuf),
+        *((void **)callback_data),DISPLAY_STRIDE_IN_PIXELS, 0,
+        DISPLAY_WIDTH,DISPLAY_HEIGHT}, SCE_DISPLAY_SETBUF_NEXTFRAME);
+}
+void gxm_init(){
+    sceGxmInitialize(&(SceGxmInitializeParams){0,DISPLAY_MAX_PENDING_SWAPS,gxm_vsync_cb,sizeof(void *),SCE_GXM_DEFAULT_PARAMETER_BUFFER_SIZE});
+    unsigned int i;
+    for (i = 0; i < DISPLAY_BUFFER_COUNT; i++) {
+        dbuf[i].data = dram_alloc(4*DISPLAY_STRIDE_IN_PIXELS*DISPLAY_HEIGHT, &dbuf[i].uid);
+        sceGxmColorSurfaceInit(&dbuf[i].surf,SCE_GXM_COLOR_FORMAT_A8B8G8R8,SCE_GXM_COLOR_SURFACE_LINEAR,SCE_GXM_COLOR_SURFACE_SCALE_NONE,SCE_GXM_OUTPUT_REGISTER_SIZE_32BIT,DISPLAY_WIDTH,DISPLAY_HEIGHT,DISPLAY_STRIDE_IN_PIXELS,dbuf[i].data);
+        sceGxmSyncObjectCreate(&dbuf[i].sync);
+    }
+}
+void gxm_swap(){
+    sceGxmPadHeartbeat(&dbuf[backBufferIndex].surf, dbuf[backBufferIndex].sync);
+    sceGxmDisplayQueueAddEntry(dbuf[frontBufferIndex].sync, dbuf[backBufferIndex].sync, &dbuf[backBufferIndex].data);
+    frontBufferIndex = backBufferIndex;
+    backBufferIndex = (backBufferIndex + 1) % DISPLAY_BUFFER_COUNT;
+}
+void gxm_term(){
+    sceGxmTerminate();
+
+    for (int i=0; i<DISPLAY_BUFFER_COUNT; ++i)
+        sceKernelFreeMemBlock(dbuf[i].uid);
+}
+
+
+void testHandler(void *arg, const SceImeEventData *e) {
+    printf("%i, %i\n", e->id, *((int*) arg));
+    if (e->id == SCE_IME_EVENT_PRESS_CLOSE) {
+        *((int*) arg) = 0;
+        sceImeClose();
+    }
+}
+
 int main(int argc, char *argv[]) {
     System mainSys;
     GraphicsSystem gfxSys;
@@ -42,6 +114,9 @@ int main(int argc, char *argv[]) {
 
     gfx_init_graphics_system(&gfxSys);
     inp_init_input_system(&mainSys.inputSys);
+
+    // Initialize IME
+    sceSysmoduleLoadModule(SCE_SYSMODULE_IME); 
 
     // Initialize Net
     sceSysmoduleLoadModule(SCE_SYSMODULE_NET); // load NET module
@@ -158,9 +233,24 @@ int main(int argc, char *argv[]) {
     double x = 0.;
     double y = 0.;
 
+
+    // IME STUFF
+    uint16_t input[255 + 1] = {0};
+    SceImeParam param;
+    sceImeParamInit(&param);
+
+    int shown_dial = 0;
+    bool said_yes = false;
+
+    sceAppUtilInit(&(SceAppUtilInitParam){}, &(SceAppUtilBootParam){});
+    sceCommonDialogSetConfigParam(&(SceCommonDialogConfigParam){});
+
+    gxm_init();
+
     // TODO: REPLACE WITH THE ABSTRACTED INPUT SYSTEM AFTER
     // WE'RE DONE REMAKING IT
     SceCtrlData ctrl;
+    SceUInt32 libime_work[SCE_IME_WORK_BUFFER_SIZE / sizeof(SceInt32)];
     unsigned int prevButtonState = 0x0;
     
     while (sys_main_loop(&mainSys)) {
@@ -187,6 +277,8 @@ int main(int argc, char *argv[]) {
         else if (inp_is_joy_btn_pressed(JOY_RIGHT)) {
             x = x + 50. * mainSys.deltaTime;
         }
+
+        x += mainSys.deltaTime * 5.;
 
         sceKernelLockMutex(currDrawBuffer->mutex, 1, NULL);
         drawBox(currDrawBuffer,
@@ -226,9 +318,71 @@ int main(int argc, char *argv[]) {
 
         prevButtonState = ctrl.buttons;
 
-        // Swapping front/back buffers
-        gfx_swap_buffers(&gfxSys);
+        // IME STUFF
+        //clear current screen buffer
+        memset(dbuf[backBufferIndex].data,0xff000000,DISPLAY_HEIGHT*DISPLAY_STRIDE_IN_PIXELS*4);
+
+        if (buttonsDown & SCE_CTRL_TRIANGLE) {
+            if (!shown_dial) {
+                shown_dial = 1;
+
+                param.supportedLanguages = SCE_IME_LANGUAGE_ENGLISH;
+                param.languagesForced = SCE_TRUE;
+                param.type = SCE_IME_TYPE_DEFAULT;
+                param.option = 0;
+                param.inputTextBuffer = input;
+                param.handler = testHandler;
+                param.initialText = "yo";
+                param.maxTextLength = 69;
+                param.enterLabel = SCE_IME_ENTER_LABEL_DEFAULT;
+                param.work = libime_work;
+                param.arg = &shown_dial;
+
+                sceImeOpen(&param) > 0;
+            }
+            else {
+                shown_dial = 0;
+                sceImeClose();
+            }
+        }
+
+        printf("%s\n", input);
+
+        /*if (sceImeDialogGetStatus() == SCE_COMMON_DIALOG_STATUS_FINISHED) {
+            SceImeDialogResult result={};
+            sceImeDialogGetResult(&result);
+            uint16_t*last_input = (result.button == SCE_IME_DIALOG_BUTTON_ENTER) ? input:u"";
+            said_yes=!memcmp(last_input,u"yes",4*sizeof(u' '));
+            sceImeDialogTerm();
+            if (!said_yes) shown_dial = 0; //< to respawn sceImeDialogInit on next loop
+            printf("%s\n", last_input);
+        }
+        else {
+            sceCommonDialogUpdate(&(SceCommonDialogUpdateParam) {
+                {
+                    NULL,
+                    dbuf[backBufferIndex].data,
+                    0,
+                    0,
+                    DISPLAY_WIDTH,
+                    DISPLAY_HEIGHT,
+                    DISPLAY_STRIDE_IN_PIXELS
+                },
+                dbuf[backBufferIndex].sync
+            });
+        }*/
         
+        // if (shown_dial) {  //sceImeDialogGetStatus() == SCE_COMMON_DIALOG_STATUS_RUNNING) {
+        // 	gxm_swap();
+        // }
+        // else {
+        // }
+
+        sceImeUpdate();
+
+        //gxm_swap();
+        gfx_swap_buffers(&gfxSys);
+
         gfx_wait_for_blank();
     }
 
