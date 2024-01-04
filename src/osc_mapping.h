@@ -1,3 +1,6 @@
+#ifndef TUI_OSC_MAPPING_H
+#define TUI_OSC_MAPPING_H
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -8,6 +11,7 @@
 typedef enum EOscMappingStyle {
     EOscMappingStyle_MOMENTARY,
     EOscMappingStyle_TOGGLE,
+    EOscMappingStyle_CONTINOUS,
 } EOscMappingStyle;
 
 
@@ -113,3 +117,5 @@ void send_osc_message_from_mapping(int sfd, SceNetSockaddrIn addrTo, OscButtonMa
 
     free_osc_message(&newMsg);
 }
+
+#endif
