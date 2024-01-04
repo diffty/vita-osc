@@ -21,27 +21,29 @@
 #include "graphics/drawing.h"
 #include "core/input.h"
 #include "utils/time.h"
+#include "utils/maths.h"
 #include "input/ime.h"
+#include "tui/lineedit.h"
+#include "tui/label.h"
+#include "tui/table.h"
+#include "tui/tablerow.h"
+#include "tui/msgline.h"
 
 #include "osc_mapping.h"
-#include "tui.h"
+#include "config.h"
+
 
 #define NET_PARAM_MEM_SIZE (1*1024*1024)
 
-
-
-void testHandler(void *arg, const SceImeEventData *e) {
-    printf("%i, %i\n", e->id, *((int*) arg));
-    if (e->id == SCE_IME_EVENT_PRESS_CLOSE) {
-        *((int*) arg) = 0;
-        sceImeClose();
-    }
-}
 
 int main(int argc, char *argv[]) {
     System mainSys;
     GraphicsSystem gfxSys;
     ImeSystem imeSys;
+    OscConnection oscConnection;
+
+    memset(oscConnection.address, '\0', 40);
+    memset(oscConnection.port, '\0', 6);
 
     sys_init_system(&mainSys);
     sys_init_console();
@@ -103,74 +105,85 @@ int main(int argc, char *argv[]) {
 
     // OSC Mappings management
     int nbMappings = 2;
+    OscButtonMapping* oscButtonMappings = NULL;
 
-    OscButtonMapping* oscButtonMapping = NULL;
-    oscButtonMapping = (OscButtonMapping*) malloc(nbMappings * sizeof(OscButtonMapping));
+    oscButtonMappings = (OscButtonMapping*) malloc(nbMappings * sizeof(OscButtonMapping));
 
-    init_osc_button_mapping(&oscButtonMapping[0]);
-    init_osc_button_mapping(&oscButtonMapping[1]);
+    init_osc_button_mapping(&oscButtonMappings[0]);
+    init_osc_button_mapping(&oscButtonMappings[1]);
 
-    copy_str(&oscButtonMapping[0].address, "/test/ouida");
-    copy_str(&oscButtonMapping[1].address, "/test/oki");
+    copy_str(&oscButtonMappings[0].address, "/test/ouida");
+    copy_str(&oscButtonMappings[1].address, "/test/oki");
 
-    oscButtonMapping[0].button = 12;
-    oscButtonMapping[1].button = 14;
+    oscButtonMappings[0].button = 12;
+    oscButtonMappings[1].button = 14;
+    
 
     // TUI
     TUITable tuiTable;
     tui_init_table(&tuiTable);
 
+    TUITableRow* tuiTableRow = (TUITableRow*) malloc(sizeof(TUITableRow));
+
+    tui_init_table_row(tuiTableRow, 4);
+    tui_add_row_to_table(&tuiTable, tuiTableRow);
+
+    tui_set_table_row_cell(tuiTableRow, 0, "+ New");
+    tui_set_table_row_cell(tuiTableRow, 1, "");
+    tui_set_table_row_cell(tuiTableRow, 2, "");
+    tui_set_table_row_cell(tuiTableRow, 3, "");
+    
     int i, j;
 
     for (i = 0; i < nbMappings; i++) {
-        TUITableRow* tuiTableRow = (TUITableRow*) malloc(sizeof(TUITableRow));
+        tuiTableRow = (TUITableRow*) malloc(sizeof(TUITableRow));
 
         tui_init_table_row(tuiTableRow, 4);
         tui_add_row_to_table(&tuiTable, tuiTableRow);
 
         char rangeStr[20];
-        snprintf(rangeStr, 20, "%.3f->%.3f", oscButtonMapping[i].range[0], oscButtonMapping[i].range[1]);
+        snprintf(rangeStr, 20, "%.3f->%.3f", oscButtonMappings[i].range[0], oscButtonMappings[i].range[1]);
 
-        tui_set_table_row_cell(tuiTableRow, 0, oscButtonMapping[i].address);
-        tui_set_table_row_cell(tuiTableRow, 1, BUTTON_NAMES[oscButtonMapping[i].button]);
+        tui_set_table_row_cell(tuiTableRow, 0, oscButtonMappings[i].address);
+        tui_set_table_row_cell(tuiTableRow, 1, BUTTON_NAMES[oscButtonMappings[i].button]);
         tui_set_table_row_cell(tuiTableRow, 2, rangeStr);
-        tui_set_table_row_cell(tuiTableRow, 3, OSC_MAPPING_STYLE_NAME[oscButtonMapping[i].mappingStyle]);
+        tui_set_table_row_cell(tuiTableRow, 3, OSC_MAPPING_STYLE_NAME[oscButtonMappings[i].mappingStyle]);
     }
 
-    int windowWidth = 70;
+    int windowWidth = 60;
     int windowHeight = 30;
 
-    printf("\033[2J");
+    TUILabel addressLabel;
+    tui_init_label(&addressLabel, oscConnection.address, "Address");
+    addressLabel.rect.x = 0;
+    addressLabel.rect.y = 0;
 
-    printf("\e[1;H");
-    printf("Address:");
+    TUILabel portLabel;
+    tui_init_label(&portLabel, oscConnection.port, "Port");
+    portLabel.rect.x = windowWidth - 12;
+    portLabel.rect.y = 0;
 
-    printf("\e[1;10H");
-    char address[16] = "xxx.xxx.xxx.xxx";
-    int port = 7001;
+    TUILineEdit tuiLineEdit;
+    tui_init_line_edit(&tuiLineEdit);
 
-    printf("%s", address);
-
-    printf("\e[1;%dH", windowWidth - 12);
-    printf("Port:");
-
-    printf("\e[1;%dH", windowWidth - 6);
-    printf("%d", port);
-
-    tui_redraw_table(&tuiTable, windowWidth, windowHeight);
-
-
-    printf("Test\n");
+    TUIMsgLine tuiMsgLine;
+    tui_init_msg_line(&tuiMsgLine);
 
     double x = 0.;
     double y = 0.;
-
 
     // TODO: REPLACE WITH THE ABSTRACTED INPUT SYSTEM AFTER
     // WE'RE DONE REMAKING IT
     SceCtrlData ctrl;
     unsigned int prevButtonState = 0x0;
     
+    bool bEditingMode = false;
+
+    bool bEditingDestination = false;
+    bool bEditingOscAddress = false;
+    bool bEditingButtonAssignation = false;
+    bool bEditingOscRange = false;
+
     while (sys_main_loop(&mainSys)) {
         drawbuffer* currDrawBuffer = &gfxSys.framebuffer[gfxSys.currBackbufferIdx];
         
@@ -182,27 +195,6 @@ int main(int argc, char *argv[]) {
         gfx_fill_with_color(currDrawBuffer, 0x0);
         sceKernelUnlockMutex(currDrawBuffer->mutex, 1);
         
-        if (inp_is_joy_btn_pressed(JOY_DOWN)) {
-            y = y + 50. * mainSys.deltaTime;
-        }
-        else if (inp_is_joy_btn_pressed(JOY_UP)) {
-            y = y - 50. * mainSys.deltaTime;
-        }
-
-        if (inp_is_joy_btn_pressed(JOY_LEFT)) {
-            x = x - 50. * mainSys.deltaTime;
-        }
-        else if (inp_is_joy_btn_pressed(JOY_RIGHT)) {
-            x = x + 50. * mainSys.deltaTime;
-        }
-
-        sceKernelLockMutex(currDrawBuffer->mutex, 1, NULL);
-        drawBox(currDrawBuffer,
-                floor(-10.0 + x), floor(50.0 + y), floor(150.0 + x), floor(150.0 + y),
-                (color4) { 255, 255, 0, 255 });
-        sceKernelUnlockMutex(currDrawBuffer->mutex, 1);
-
-
         // TODO: REPLACE WITH THE ABSTRACTED INPUT SYSTEM AFTER
         // WE'RE DONE REMAKING IT
         sceCtrlPeekBufferPositive(0, &ctrl, 1);
@@ -210,46 +202,226 @@ int main(int argc, char *argv[]) {
         unsigned int buttonsDown = ctrl.buttons & ~prevButtonState;
         unsigned int buttonsUp = ~ctrl.buttons & prevButtonState;
 
-        if (buttonsDown & SCE_CTRL_DOWN) {
-            tuiTable.highlightedRowId = (tuiTable.highlightedRowId + 1) % tuiTable.nbRows;
-        }
-        else if (buttonsDown & SCE_CTRL_UP) {
-            tuiTable.highlightedRowId--;
-            if (tuiTable.highlightedRowId < 0) {
-                tuiTable.highlightedRowId = tuiTable.nbRows-1;
+        prevButtonState = ctrl.buttons;
+
+        if (!bEditingMode) {
+            // Show mode.
+            // Inputs mapped are firing their matching OSC messages 
+            for (i = 0; i < nbMappings; i++) {
+                if (buttonsDown & (1 << oscButtonMappings[i].button)) {
+                    send_osc_message_from_mapping(sfd, addrTo, &oscButtonMappings[i], 1.0);
+                }
+
+                if (buttonsUp & (1 << oscButtonMappings[i].button)) {
+                    send_osc_message_from_mapping(sfd, addrTo, &oscButtonMappings[i], 0.0);
+                }
+            }
+
+            if (buttonsDown & SCE_CTRL_START) {
+                bEditingMode = true;
+                tuiTable.highlightedRowId = -1;
             }
         }
+        else {
+            // Edit mode.
+            // No OSC messages fired, the user can operate the menu and change
+            // mapping values
+            if (!bEditingButtonAssignation) {
+                if (buttonsDown & SCE_CTRL_DOWN) {
+                    tuiTable.highlightedRowId = (tuiTable.highlightedRowId + 1) % tuiTable.nbRows;
+                }
+                else if (buttonsDown & SCE_CTRL_UP) {
+                    tuiTable.highlightedRowId--;
+                    if (tuiTable.highlightedRowId < 0) {
+                        tuiTable.highlightedRowId = tuiTable.nbRows-1;
+                    }
+                }
+                else if (buttonsDown & SCE_CTRL_SELECT) {
+                    char addressAndPort[50];
+                    
+                    bEditingDestination = true;
 
-        for (i = 0; i < nbMappings; i++) {
-            if (buttonsDown & (1 << oscButtonMapping[i].button)) {
-                send_osc_message_from_mapping(sfd, addrTo, &oscButtonMapping[i], 1.0);
+                    if (oscConnection.port[0] == '\0') {
+                        snprintf(addressAndPort, 50, "%s", oscConnection.address);
+                    }
+                    else {
+                        snprintf(addressAndPort, 50, "%s:%s", oscConnection.address, oscConnection.port);
+                    }
+
+                    SceWChar16* addressAndPortW = (SceWChar16*) malloc(50 * sizeof(SceWChar16));
+
+                    int i = 0;
+                    char c;
+                    while ((c = addressAndPort[i]) != '\0') {
+                        addressAndPortW[i++] = (SceWChar16) c;
+                    }
+                    addressAndPortW[i] = u'\0'; 
+
+                    ime_toggle_ime_system(&imeSys, addressAndPortW);
+
+                    tui_show_line_edit(&tuiLineEdit, "Address/Port", addressAndPort);
+
+                    free(addressAndPortW);
+                }
+                else if (buttonsDown & SCE_CTRL_CROSS) {
+                    bEditingOscAddress = true;
+
+                    if (tuiTable.highlightedRowId >= 0) {
+                        SceWChar16* selectedOscAddressW = (SceWChar16*) malloc(256 * sizeof(SceWChar16));
+                        selectedOscAddressW[0] = '\0';
+                        
+                        char* selectedOscAddress = NULL;
+
+                        if (tuiTable.highlightedRowId > 0) {
+                            TUITableRow* selectedTableRow = &tuiTable.aRows[tuiTable.highlightedRowId];
+                            selectedOscAddress = selectedTableRow->columnsData[0];
+
+                            int i = 0;
+                            char c;
+                            while ((c = selectedTableRow->columnsData[0][i]) != '\0') {
+                                selectedOscAddressW[i++] = (SceWChar16) c;
+                            }
+                            selectedOscAddressW[i] = u'\0'; 
+                        }
+
+                        ime_toggle_ime_system(&imeSys, selectedOscAddressW);
+
+                        if (selectedOscAddress == NULL)
+                            tui_show_line_edit(&tuiLineEdit, "New OSC message address", "");
+                        else
+                            tui_show_line_edit(&tuiLineEdit, "Edit OSC message address", selectedOscAddress);
+
+                        free(selectedOscAddressW);
+                    }
+                }
+                else if (buttonsDown & SCE_CTRL_SQUARE && tuiTable.highlightedRowId > 0) {
+                    tui_show_msg_line(&tuiMsgLine, "Press a button to assign to selected OSC message\n(press START to cancel or SELECT to erase)");
+                    bEditingButtonAssignation = true;
+                }
+                else if (buttonsDown & SCE_CTRL_START) {
+                    bEditingMode = false;
+                }
+            }
+            else {
+                if (buttonsDown > 0) {
+                    TUITableRow* selectedTableRow = &tuiTable.aRows[tuiTable.highlightedRowId];
+                    int mappingId = tuiTable.highlightedRowId-1;
+
+                    if (buttonsDown & SCE_CTRL_SELECT) {
+                        oscButtonMappings[mappingId].button = -1;
+                        tui_set_table_row_cell(selectedTableRow, 1, "");
+                    }
+                    else if (!(buttonsDown & SCE_CTRL_START)) {
+                        int btnId = 0;
+                        int nbButtons = 16;
+
+                        while ((buttonsDown & (1 << btnId)) == 0) { btnId++; }
+
+                        if (btnId < nbButtons) {
+                            tui_set_table_row_cell(selectedTableRow, 1, BUTTON_NAMES[btnId]);
+                            oscButtonMappings[mappingId].button = btnId;
+                        }
+                    }
+
+                    tui_hide_msg_line(&tuiMsgLine);
+                    bEditingButtonAssignation = false;
+                }
             }
 
-            if (buttonsUp & (1 << oscButtonMapping[i].button)) {
-                send_osc_message_from_mapping(sfd, addrTo, &oscButtonMapping[i], 0.0);
+            // Line edit widget TUI widget is active and visible. We're editing something
+            if (tuiLineEdit.bActive) {
+                int i;
+                int imeMaxLength = minInt(imeSys.maxLength, IME_LINE_EDIT_MAX_LENGTH);
+
+                for (i = 0; i < imeMaxLength; i++) {
+                    tuiLineEdit.text[i] = (char) imeSys.inputBuffer[i];
+                    if (tuiLineEdit.text[i] == '\0') {
+                        break;
+                    }
+                }
+
+                tuiLineEdit.text[i] = '\0';
+                
+                // Virtual keyboard is hidden. This means we finished writing in the
+                // line edit prompt
+                if (!imeSys.bVisible) {
+                    if (bEditingDestination) {
+                        // Validate new address and port edition
+                        char c;
+                        int j = 0;
+                        i = 0;
+
+                        if (tuiLineEdit.text[i] != ':') {
+                            while ((c = tuiLineEdit.text[i]) != ':' && c != '\0') {
+                                oscConnection.address[i] = c;
+                                i++;
+                            }
+                        }
+                        oscConnection.address[i] = '\0';
+
+                        if (tuiLineEdit.text[i] == ':') {
+                            i++;
+
+                            while ((c = tuiLineEdit.text[i]) != '\0') {
+                                oscConnection.port[j] = c;
+                                i++;
+                                j++;
+                            }
+                        }
+                        oscConnection.port[j] = '\0';
+
+                        bEditingDestination = false;
+                    }
+                    else if (bEditingOscAddress) {
+                        // Validate new OSC mapping creation
+                        if (tuiTable.highlightedRowId == 0) {
+                            TUITableRow* newTableRow = (TUITableRow*) malloc(sizeof(TUITableRow));
+                            tui_init_table_row(newTableRow, 4);
+                            tui_add_row_to_table(&tuiTable, newTableRow);
+
+                            char rangeStr[20];
+                            snprintf(rangeStr, 20, "%.3f->%.3f", 0.0, 1.0);
+
+                            tui_set_table_row_cell(newTableRow, 0, tuiLineEdit.text);
+                            tui_set_table_row_cell(newTableRow, 2, rangeStr);
+                            tui_set_table_row_cell(newTableRow, 3, OSC_MAPPING_STYLE_NAME[0]);
+
+                            resizeArray(&oscButtonMappings,
+                                        nbMappings * sizeof(OscButtonMapping),
+                                        (nbMappings+1) * sizeof(OscButtonMapping));
+                            
+                            nbMappings++;
+
+                            init_osc_button_mapping(&oscButtonMappings[nbMappings-1]);
+                            copy_str(&oscButtonMappings[nbMappings-1].address, tuiLineEdit.text);
+                        }
+                        // Validate existing OSC mapping edition
+                        else {
+                            TUITableRow* selectedTableRow = &tuiTable.aRows[tuiTable.highlightedRowId];
+                            tui_set_table_row_cell(selectedTableRow, 0, tuiLineEdit.text);
+                        }
+
+                        bEditingOscAddress = false;
+                    }
+
+                    tuiLineEdit.bActive = false;
+                    //refresh_osc_mapping_view_table_values(&tuiTable, &oscButtonMappings, nbMappings);
+                }
+
+                strcpy(addressLabel.text, oscConnection.address);
+                strcpy(portLabel.text, oscConnection.port);
             }
         }
 
         tui_redraw_table(&tuiTable, windowWidth, windowHeight);
-
-        prevButtonState = ctrl.buttons;
-
-        if (buttonsDown & SCE_CTRL_TRIANGLE) {
-            ime_toggle_ime_system(&imeSys);
-        }
-
-        printf("\e[8;0H");
-
-        int i;
-        for (i = 0; i < imeSys.maxLength; i++) {
-            printf("%c", (char) imeSys.inputBuffer[i]);
-        }
-        printf("\n");
+        tui_draw_label(&addressLabel);
+        tui_draw_label(&portLabel);
+        if (tuiLineEdit.bActive) tui_redraw_line_edit(&tuiLineEdit);
+        tui_redraw_msg_line(&tuiMsgLine);
 
         sceImeUpdate();
 
         gfx_swap_buffers(&gfxSys);
-
         gfx_wait_for_blank();
     }
 
